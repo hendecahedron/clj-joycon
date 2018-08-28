@@ -1,0 +1,6 @@
+{
+ :paths       ["src"]
+ :extra-paths [
+               "/Users/aside/projects/libs/joyconLib/lib/jna-4.0.0.jar"
+               "/Users/aside/projects/libs/joyconLib/lib/purejavahidapi.jar"]
+ }
