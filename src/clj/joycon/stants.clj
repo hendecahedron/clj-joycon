@@ -66,7 +66,7 @@
    :right-stick-off -4
    :vendor-id       1406})
 
-(defn defall []
-  (doall (map (fn [[k v]] (eval `(def ~(symbol (name k)) ~v))) constants-map)))
+(defmacro defall []
+  `(do ~@(map (fn [[k v]] `(def ~(symbol (name k)) ~v)) constants-map)))
 
 (defall)

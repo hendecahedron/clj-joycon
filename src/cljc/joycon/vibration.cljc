@@ -1,4 +1,11 @@
 (ns joycon.vibration
+  "
+
+  Functions for sending vibrations (rumbles)
+  to your joycons
+
+
+  "
   (:require [joycon.core :as jc]))
 
 ; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/rumble_data_table.md
@@ -281,6 +288,39 @@
   (into {}
     (map (fn [[hab1 lab3 lab4 a ra]] [ra [hab1 lab3 lab4]]) amplitude-table)))
 
+(defn clamp [x l h]
+  (if (< x l)
+    l
+    (if (> x h) h x)))
+
+(defn hex [x] (format "%02x" x))
+
+(def l2 (Math/log 2))
+
+; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/rumble_data_table.md
+(defn encode-frequency [f]
+  (let [ef (Math/round (* 32 (Math/log (* (clamp f 41 1253) 0.1)) l2))
+        hf (* (- ef 0x60) 4)
+        lf (- ef 0x40)]
+   [(bit-and hf 2r1111111100000000) (bit-and hf 2r0000000011111111) lf]))
+
+
+(defn encode-amplitude [a]
+  (let [
+         ca (clamp a 0 1)
+         ha (cond
+              (< ca 0.117) (- (/ (- (* l2 32 (Math/log (* 1000 ca))) 0x60) (- 5 (* l2 (Math/log ca)))) 1)
+              (< ca 0.23) (- (- (* 32 l2 (Math/log ca)) 0x60) 0x5c)
+              true (- (* 2 (- (* 32 l2 (Math/log ca)) 0x60)) 0xf6))
+         la (* 0.5 (Math/round ha))
+         p  (> (mod la 2) 0)
+         la (int (if p (- la 1) p))
+         la (int (+ 0x40 (bit-shift-right la 1)))
+         la (int (if p (bit-or la 0x8000) la))
+       ]
+     [(int ha) (bit-and (bit-shift-right la 8) 0xff) (bit-and la 0xff)]))
+
+
 ; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/bluetooth_hid_notes.md#rumble-data
 ; [00 01 40 40 00 01 40 40] (320Hz 0.0f 160Hz 0.0f)
 ; A timing byte, then 4 bytes of rumble data for left Joy-Con, followed by 4 bytes for right Joy-Con.
@@ -293,10 +333,22 @@
           [rhfb0 rhfb1 rlfb2] (bytes-by-frequency rf)
           [rhab1 rlab3 rlab4] (bytes-by-amplitude ra)
          ]
-         [lhfb0 (+ lhab1 lhfb1)   (+ llfb2 llab3) llab4
+         [lhfb1 (+ lhab1 lhfb0)   (+ llfb2 llab4) llab3
 
-          rhfb0 (+ rhab1 rhfb1)   (+ rlfb2 rlab3) rlab4])))
+          rhfb1 (+ rhab1 rhfb0)   (+ rlfb2 rlab4) rlab3])))
 
+(defn vibration-data
+  ([fa]
+    (vibration-data fa fa))
+  ([l r]
+    (into (into [0x01 0] (rumble-data l r)) jc/zer06)))
 
-(defn vibration-data [l r]
-  (into (into [0 1] (rumble-data l r)) jc/zero54))
+(defn send-vibrations [j tfa]
+  (let [q (vibration-data [41 0.0])]
+    (doseq [[t vd] (map (fn [[t f a]] [t (vibration-data [f a])]) tfa)]
+     (do
+       (Thread/sleep t)
+       (jc/with-set-output-report j vd)
+       ;(Thread/sleep t)
+       ;(jc/with-set-output-report j q)
+       ))))
