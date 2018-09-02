@@ -14,6 +14,7 @@
 
   "
   (:require
+    [clojure.core.async :as async :refer [chan <!! >!! close!]]
     [joycon.stants :as joy]
     [clojure.string :as string])
   (:import
@@ -34,6 +35,7 @@
 (def b& bit-and)
 (def b| bit-or)
 
+; various vectors of zeros
 (def zero64 (vec (repeat 64 0)))
 (def zero54 (vec (repeat 54 0)))
 (def zero48 (vec (repeat 48 0)))
@@ -107,10 +109,29 @@
   (.setOutputReport joycon (byte 0x01) (with-packet-number (subcommand-presets subcommand-key)) 16)
   j)
 
+(defn add-input-channel [{^HidDevice joycon :device :as j}]
+  (let [c (chan)]
+    (.setInputReportListener joycon
+     (reify InputReportListener
+       (onInputReport [this source reportID data reportLength]
+         (>!! c {:report-id reportID :data data :length reportLength}))))
+     (.setDeviceRemovalListener joycon
+        (reify DeviceRemovalListener
+         (onDeviceRemoval [this source]
+           (close! c))))
+     (assoc j :input-report-channel c)))
+
 (defn joycon [side]
   (if-let [di (device-info {:vendor-id  joy/vendor-id
                             :product-id ({:left joy/joycon-left :right joy/joycon-right} side)})]
-    (-> {:device (open-device di) :device-info di :side side :stick-offsets (vec (take 3 (iterate inc (if (= :left side) 6 9))))}
+    (->
+      {
+        :device (open-device di)
+        :device-info di
+        :side side
+        :stick-offsets (vec (take 3 (iterate inc (if (= :left side) 6 9))))
+      }
+      (add-input-channel)
       (set-output-report-preset :enable-imu)
       (set-output-report-preset :enable-vibration))
     nil))
@@ -204,33 +225,25 @@
       (f j reportID data reportLength)
        (.setInputReportListener joycon nil)))))
 
-(defn ignoring [{^HidDevice joycon :device :as j} k]
-  (.setInputReportListener joycon
-    (reify InputReportListener
-     (onInputReport [this source reportID data reportLength]
-        (println ">*" (string/join " " (map print-hex data)))
-       (.setInputReportListener joycon nil))))
-   (set-output-report-preset j k))
-
-(defn get-callibration [j]
-  (let [wait (promise) factory-config (promise) user-config (promise)]
-    ; need to do this to get input reportID 0x21 back
-    ; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/bluetooth_hid_notes.md#input-0x21
-    ; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/bluetooth_hid_subcommands_notes.md#subcommand-0x10-spi-flash-read
-    (set-output-report-preset j :set-input-report-mode/simple-hid)
-    (report-once j (fn [_ reportID data _] (deliver wait data)))
-    @wait
-    (set-output-report-preset j :spi-flash-read-factory-config)
-    (report-once j
-      (fn [_ reportID data _]
-        (deliver factory-config (decode-factory-config (vec data)))))
-    @factory-config
-    (set-output-report-preset j :spi-flash-read-user-config)
-    (report-once j
-      (fn [_ reportID data _]
-        (deliver user-config (decode-user-config (vec data)))))
-    @user-config
+(defn get-callibration [{ic :input-report-channel :as j}]
+  (let [
+        _ (set-output-report-preset j :set-input-report-mode/simple-hid)
+        _ (<!! ic)
+        _ (set-output-report-preset j :spi-flash-read-factory-config)
+        factory-config (decode-factory-config (vec (:data (<!! ic))))
+        _ (set-output-report-preset j :spi-flash-read-user-config)
+        user-config (decode-user-config (vec (:data (<!! ic))))
+        ]
     {
-      :factory @factory-config
-      :user    @user-config
-    }))
+      :raw-factory factory-config
+      :raw-user    user-config
+      :factory
+        {
+          :left-stick  (decode-3x3 :left (:left-stick factory-config))
+          :right-stick (decode-3x3 :right (:right-stick factory-config))
+        }
+      :user
+        {
+          :left-stick  (decode-3x3 :left (:left-stick user-config))
+          :right-stick (decode-3x3 :right (:right-stick user-config))
+        }}))

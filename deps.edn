@@ -2,9 +2,10 @@
  :paths       ["src/clj" "src/cljc"]
  :deps
               {
-               org.clojure/clojure                                         {:mvn/version "1.9.0"}
-               net.java.dev.jna/jna                                        {:mvn/version "4.5.2"}
-               purejavahidapi                                              {:local/root "/Users/onto/projects/libs/joyconLib/lib/purejavahidapi.jar"}
+               org.clojure/clojure    {:mvn/version "1.9.0"}
+               org.clojure/core.async {:mvn/version "0.4.474"}
+               net.java.dev.jna/jna   {:mvn/version "4.5.2"}
+               purejavahidapi         {:local/root "/Users/onto/projects/libs/joyconLib/lib/purejavahidapi.jar"}
                }
  :extra-paths [
                "/Users/aside/projects/libs/joyconLib/lib/jna-4.0.0.jar"
