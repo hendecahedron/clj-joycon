@@ -8,6 +8,8 @@
   "
   (:require [joycon.core :as jc]))
 
+(def l2 (Math/log 2))
+
 ; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/rumble_data_table.md
 
 (def frequency-table [
@@ -293,10 +295,6 @@
     l
     (if (> x h) h x)))
 
-(defn hex [x] (format "%02x" x))
-
-(def l2 (Math/log 2))
-
 ; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/rumble_data_table.md
 (defn encode-frequency [f]
   (let [ef (Math/round (* 32 (Math/log (* (clamp f 41 1253) 0.1)) l2))
@@ -348,7 +346,7 @@
     (doseq [[t vd] (map (fn [[t f a]] [t (vibration-data [f a])]) tfa)]
      (do
        (Thread/sleep t)
-       (jc/with-set-output-report j vd)
+       (jc/set-output-report j vd)
        ;(Thread/sleep t)
        ;(jc/with-set-output-report j q)
        ))))
