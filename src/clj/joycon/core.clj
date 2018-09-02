@@ -28,6 +28,12 @@
 
 (def global-packet-number (atom (byte 0)))
 
+; bit operations - 'b' looks like a 1 and a 0 together
+(def b< bit-shift-left)
+(def b> bit-shift-right)
+(def b& bit-and)
+(def b| bit-or)
+
 (def zero64 (vec (repeat 64 0)))
 (def zero54 (vec (repeat 54 0)))
 (def zero48 (vec (repeat 48 0)))
@@ -59,7 +65,8 @@
    :enable-vibration                 (bytez zero16 {0 0x01 10 0x48 11 0x01})
    :disable-vibration                (bytez zero16 {0 0x01 10 0x48 11 0x00})
    :enable-imu                       (bytez zero16 {0 0x01 10 0x40 11 0x01})
-   :spi-flash-read                   (bytez zero16 {0 0x01 10 0x10 11 0x0 12 0x60 15 0x1d})
+   :spi-flash-read-factory-config    (bytez zero16 {0 0x01 10 0x10 11 0x0 12 0x60  15 0x1d})
+   :spi-flash-read-user-config       (bytez zero16 {0 0x01 10 0x10 11 0x0 12 -0x80 15 0x1d})
    })
 
 (defn print-hex [x] (format "%02x" x))
@@ -114,27 +121,65 @@
       [(bit-or b0 (bit-shift-left (bit-and b1 0xf) 0x08))
        (bit-or (bit-shift-right b1 4) (bit-shift-left b2 4))])))
 
+; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/spi_flash_notes.md#analog-stick-factory-and-user-calibration
+(defn decode-3x3 [side [d0 d1 d2 d3 d4 d5 d6 d7 d8]]
+  (let [
+         c0 (b| (b& (b< d1 8) 0xf00) d0)
+         c1 (b| (b< d2 4) (b> d1 4))
+         c2 (b| (b& (b< d4 8) 0xf00) d3)
+         c3 (b| (b< d5 4) (b> d4 4))
+         c4 (b| (b& (b< d7 8) 0xf00) d6)
+         c5 (b| (b< d8 4) (b> d7 4))
+         [cx cy xa ya xb yb] (if (= :left side) [c2 c3 c0 c1 c4 c5] [c0 c1 c4 c5 c2 c3])
+       ]
+       {
+         :cx cx
+         :cy cy
+         :minx (- cx xb)
+         :maxx (+ cx xa)
+         :miny (- cy yb)
+         :maxy (+ cy ya)
+       }))
+
 ; get SPI dump
 ;(with-set-output-report jl (bytez zero16 {0 0x01 10 0x10 11 0x0 12 0x60 13 0x0 14 0x0 15 0x1d}))
 
 ; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/spi_flash_notes.md#x6000-factory-configuration-and-calibration
 (defn decode-factory-config [reply-data]
-  (let [data (subvec reply-data 19)]
-   {
-    :reply         data
-    :mcu           (subvec data 0x20 0x37)
-    :left-stick    (subvec data 0x3d 0x45)
-    :right-stick   (subvec data 0x46 0x4e)
-    :mcu-offsets   (subvec data 0x80 0x85)
-    :stick-params1 (subvec data 0x86 0x97)
-    :stick-params2 (subvec data 0x98 0xa9)
-    }))
+  (let [data (subvec reply-data 20) echo (subvec reply-data 13 19)]
+    {
+     :pre-data      (subvec reply-data 0 32)
+     :report-id     [(first reply-data)]
+     :echo          echo
+     :data          data
+     :mcu           (subvec data 0x20 0x38)
+     :left-stick    (subvec data 0x3d 0x46)
+     :right-stick   (subvec data 0x46 0x4f)
+     :mcu-offsets   (subvec data 0x80 0x86)
+     :stick-params1 (subvec data 0x86 0x98)
+     :stick-params2 (subvec data 0x98 0xaa)
+     }))
+
+(defn decode-user-config [reply-data]
+  (let [data (subvec reply-data 20) echo (subvec reply-data 13 19)]
+    {
+     :pre-data      (subvec reply-data 0 32)
+     :report-id     [(first reply-data)]
+     :echo          echo
+     :data          data
+     :left-stick    (subvec data 0x12 0x1b)
+     :right-stick   (subvec data 0x1d 0x26)
+     :mcu           (subvec data 0x28 0x40)
+     }))
 
 (defn on-input-report [{^HidDevice joycon :device :as j} f]
   (.setInputReportListener joycon
     (reify InputReportListener
      (onInputReport [this source reportID data reportLength]
       (f j reportID data reportLength)))))
+
+(defn dont-listen [{^HidDevice joycon :device}]
+  (.setInputReportListener joycon nil))
 
 (defn debug-stick-data [{^HidDevice joycon :device stick-offsets :stick-offsets :as j}]
   (.setInputReportListener joycon
@@ -148,7 +193,7 @@
   (.setInputReportListener joycon
     (reify InputReportListener
      (onInputReport [this source reportID data reportLength]
-      (println ">" (string/join " " (map #(format "%02x" %) data)))
+      (println ">" (print-hex reportID) " : " (string/join " " (map print-hex data)))
       (when (== 1 (bit-and (aget data 4) 0x01))
         (.setInputReportListener joycon nil))))))
 
@@ -159,14 +204,33 @@
       (f j reportID data reportLength)
        (.setInputReportListener joycon nil)))))
 
+(defn ignoring [{^HidDevice joycon :device :as j} k]
+  (.setInputReportListener joycon
+    (reify InputReportListener
+     (onInputReport [this source reportID data reportLength]
+        (println ">*" (string/join " " (map print-hex data)))
+       (.setInputReportListener joycon nil))))
+   (set-output-report-preset j k))
+
 (defn get-callibration [j]
-  (let [callibration (promise)]
+  (let [wait (promise) factory-config (promise) user-config (promise)]
     ; need to do this to get input reportID 0x21 back
     ; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/bluetooth_hid_notes.md#input-0x21
     ; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/bluetooth_hid_subcommands_notes.md#subcommand-0x10-spi-flash-read
     (set-output-report-preset j :set-input-report-mode/simple-hid)
+    (report-once j (fn [_ reportID data _] (deliver wait data)))
+    @wait
+    (set-output-report-preset j :spi-flash-read-factory-config)
     (report-once j
       (fn [_ reportID data _]
-        (deliver callibration (decode-factory-config (vec data)))))
-    (set-output-report-preset j :spi-flash-read)
-    @callibration))
+        (deliver factory-config (decode-factory-config (vec data)))))
+    @factory-config
+    (set-output-report-preset j :spi-flash-read-user-config)
+    (report-once j
+      (fn [_ reportID data _]
+        (deliver user-config (decode-user-config (vec data)))))
+    @user-config
+    {
+      :factory @factory-config
+      :user    @user-config
+    }))
