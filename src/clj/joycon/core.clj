@@ -14,7 +14,7 @@
 
   "
   (:require
-    [clojure.core.async :as async :refer [chan <!! >!! <! >! close! pipe go go-loop]]
+    [clojure.core.async :as async :refer [chan <!! >!! <! >! put! close! pipe go go-loop]]
     [joycon.stants :as joy]
     [clojure.string :as string])
   (:import
@@ -115,7 +115,7 @@
     (.setInputReportListener joycon
      (reify InputReportListener
        (onInputReport [this source reportID data reportLength]
-         (>!! c {:report-id reportID :data data :length reportLength}))))
+         (put! c {:report-id reportID :data data :length reportLength}))))
      (.setDeviceRemovalListener joycon
         (reify DeviceRemovalListener
          (onDeviceRemoval [this source]
@@ -141,7 +141,7 @@
         :stick-offsets (vec (take 3 (iterate inc (if (= :left side) 6 9))))
       }
       (add-input-channel)
-      (add-velocity-channel)
+      ;(add-velocity-channel)
       (set-output-report-preset :enable-imu)
       (set-output-report-preset :enable-vibration))
     nil))
