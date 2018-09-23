@@ -1,4 +1,4 @@
-##Clojure joycon library
+####Clojure joycon library
 
 
 WIP Clojure API for Joycons
@@ -49,7 +49,7 @@ WIP Clojure API for Joycons
 Progress on this will be slow as it's a 1-hour per weekend project 
 
 
-##References:
+####References:
 
 
 https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering
