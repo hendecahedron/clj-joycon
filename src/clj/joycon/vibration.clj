@@ -341,12 +341,21 @@
   ([l r]
     (into (into [0x01 0] (rumble-data l r)) jc/zer06)))
 
-(defn send-vibrations [j tfa]
+(defn send-vibrations!
+  "
+    Send the given joycon j some vibrations
+    tfa - a list of time frequency amplitude triples
+    where frequency and amplitude must be rounded values
+    from the safe valid frequency & amplitude tables (last column)
+
+    e.g. [[100 80 0.23] [100 80 0.0]] sends a 100ms 80Hz pulse
+  "
+  [j tfa]
   (let [q (vibration-data [41 0.0])]
     (doseq [[t vd] (map (fn [[t f a]] [t (vibration-data [f a])]) tfa)]
      (do
        (Thread/sleep t)
-       (jc/set-output-report j vd)
+       (jc/set-output-report! j vd)
        ;(Thread/sleep t)
        ;(jc/with-set-output-report j q)
        ))))

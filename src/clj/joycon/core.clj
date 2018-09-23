@@ -1,11 +1,14 @@
 (ns joycon.core
   "
 
-  Clojure joycon functions
+  Joycon functions
+
 
   (def jl (joycon :left)
 
   returns a joycon (vibration & IMU enabled by default)
+
+  (send-vibrations jl [[150 160 0.79] [200 80 0.0]]
 
   (close-device jl)
 
@@ -14,8 +17,8 @@
 
   "
   (:require
-    [clojure.core.async :as async :refer [chan <!! >!! <! >! put! close! pipe go go-loop]]
-    [joycon.stants :as joy]
+    [clojure.core.async :as async :refer [chan <!! >!! <! >! put! close! pipe go go-loop dropping-buffer]]
+    [joycon.constants :as joy]
     [clojure.string :as string])
   (:import
     [purejavahidapi PureJavaHidApi]
@@ -29,7 +32,7 @@
 
 (def global-packet-number (atom (byte 0)))
 
-; bit operations - 'b' looks like a 1 and a 0 together
+; bit operations - 'b' looks like a 1 and a 0 superimposed
 (def b< bit-shift-left)
 (def b> bit-shift-right)
 (def b& bit-and)
@@ -44,6 +47,14 @@
 (def zer06  (vec (repeat  6 0)))
 
 (defn bytez
+  "
+    Returns a byte array of zeros of the given size
+    with the given map of indices to bytes set
+
+    e.g. (bytez zero16 {0 0x01 10 0x48 11 0x01})
+    returns a 16 byte array with all zeros except
+    bytes 0 set to 0x01, byte 10 set to 0x48 and byte 11 set to 0x01
+  "
   ([bytes-map]
     (bytez zero64 bytes-map))
   ([zeros bytes-map]
@@ -94,8 +105,12 @@
 (defn ^HidDevice open-device [^HidDeviceInfo d]
   (PureJavaHidApi/openDevice d))
 
-(defn close-device [{^HidDevice d :device ic :input-report-channel}]
-  (close! ic)
+(defn close-joycon!
+  "
+   Close the given joycon
+  "
+  [{^HidDevice d :device ic :input-report-channel dc :data-channel rc :result-channel mc :message-channel}]
+  (doseq [c [ic dc rc mc]] (when c (close! c)))
   (.close d))
 
 (defn with-packet-number [bytes]
@@ -103,15 +118,25 @@
   (aset-byte bytes 1 @global-packet-number)
   bytes)
 
-(defn set-output-report [{^HidDevice joycon :device :as j} data]
+(defn set-output-report!
+  "
+   Send the given joycon the given data
+   (a collection of bytes)
+  "
+  [{^HidDevice joycon :device :as j} data]
   (.setOutputReport joycon (byte 0x01) (with-packet-number (byte-array data)) (count data)))
 
-(defn set-output-report-preset [{^HidDevice joycon :device :as j} subcommand-key]
+(defn set-output-report-preset!
+  "
+   Send to given joycon the given preset
+   subcommand data
+  "
+  [{^HidDevice joycon :device :as j} subcommand-key]
   (.setOutputReport joycon (byte 0x01) (with-packet-number (subcommand-presets subcommand-key)) 16)
   j)
 
 (defn add-input-channel [{^HidDevice joycon :device :as j}]
-  (let [c (chan)]
+  (let [c (chan (dropping-buffer 512))]
     (.setInputReportListener joycon
      (reify InputReportListener
        (onInputReport [this source reportID data reportLength]
@@ -129,7 +154,16 @@
       (fn [r [{s0 :stick} {s1 :stick}]] {:stick (mapv - s0 s1)})
       {} data-channel)))
 
-(defn joycon [side]
+(defn setup-joycon! [{ic :input-report-channel :as j}]
+  (set-output-report-preset! j :set-input-report-mode/simple-hid)
+  (<!! ic)
+  (set-output-report-preset! j :enable-imu)
+  (<!! ic)
+  (set-output-report-preset! j :enable-vibration)
+  (<!! ic)
+  j)
+
+(defn joycon! [side]
   (if-let [di (device-info {:vendor-id  joy/vendor-id
                             :product-id ({:left joy/joycon-left :right joy/joycon-right} side)})]
     (->
@@ -137,13 +171,14 @@
         :device (open-device di)
         :device-info di
         :side side
+        :stop-button (if (= :left side) joy/minus-on joy/plus-on)
+        :stop-button-index (if (= :left side) 4 2)
         :data-channel (chan)
         :stick-offsets (vec (take 3 (iterate inc (if (= :left side) 6 9))))
       }
       (add-input-channel)
       ;(add-velocity-channel)
-      (set-output-report-preset :enable-imu)
-      (set-output-report-preset :enable-vibration))
+      setup-joycon!)
     nil))
 
 (defn decode-stick-data
@@ -215,29 +250,31 @@
      (onInputReport [this source reportID data reportLength]
       (f j reportID data reportLength)))))
 
-(defn dont-listen [{^HidDevice joycon :device}]
-  (.setInputReportListener joycon nil))
+(defn dont-listen [{^HidDevice joycon :device :as j}]
+  (.setInputReportListener joycon nil)
+  j)
 
-(defn debug-stick-data [{^HidDevice joycon :device stick-offsets :stick-offsets :as j}]
+(defn debug-stick-data! [{^HidDevice joycon :device stop-button :stop-button stop-button-index :stop-button-index stick-offsets :stick-offsets :as j}]
   (.setInputReportListener joycon
     (reify InputReportListener
      (onInputReport [this source reportID data reportLength]
        (println ">" (decode-stick-data stick-offsets data))
-       (when (== 1 (bit-and (aget data 4) 0x01))
+       (when (== stop-button (aget data stop-button-index))
          (.setInputReportListener joycon nil))))))
 
-(defn debug-stick-data-async [{^HidDevice joycon :device stick-offsets :stick-offsets
-                               ic :input-report-channel data-channel :data-channel data-channel' :data-channel' :as j}]
-  (set-output-report-preset j :set-input-report-mode/standard)
+(defn debug-stick-data-async! [{^HidDevice joycon :device stick-offsets :stick-offsets
+                               stop-button        :stop-button stop-button-index :stop-button-index
+                               ic                 :input-report-channel data-channel :data-channel data-channel' :data-channel' :as j}]
+  (set-output-report-preset! j :set-input-report-mode/standard)
   (<!! ic)
   (let [dc (chan)
         mc (chan)
         gc (go-loop []
              (let [^bytes data (:data (<! dc))]
                (>! data-channel {:stick (decode-stick-data stick-offsets data)})
-               (if (not= 1 (bit-and (aget data 4) 0x01))
-                 (recur)
-                 (>! mc :stop))))
+               (if (== stop-button (aget data stop-button-index))
+                 (>! mc :stop)
+                 (recur))))
         debugging (go-loop [] (if-let [d (<! data-channel)] (do (println d) (recur)) :end))]
     (pipe ic dc)
     (go-loop []
@@ -247,12 +284,12 @@
         :otherwise (recur))))
     (assoc j :debug-channel dc :result-channel gc :message-channel mc)))
 
-(defn debug [{^HidDevice joycon :device :as j}]
+(defn debug! [{^HidDevice joycon :device si :stop-button-index sb :stop-button :as j}]
   (.setInputReportListener joycon
     (reify InputReportListener
      (onInputReport [this source reportID data reportLength]
       (println ">" (print-hex reportID) " : " (string/join " " (map print-hex data)))
-      (when (== 1 (bit-and (aget data 4) 0x01))
+      (when (== sb (aget data si))
         (.setInputReportListener joycon nil))))))
 
 (defn report-once [{^HidDevice joycon :device :as j} f]
@@ -262,13 +299,13 @@
       (f j reportID data reportLength)
        (.setInputReportListener joycon nil)))))
 
-(defn get-callibration [{ic :input-report-channel :as j}]
+(defn get-callibration! [{ic :input-report-channel :as j}]
   (let [
-        _ (set-output-report-preset j :set-input-report-mode/simple-hid)
+        _ (set-output-report-preset! j :set-input-report-mode/simple-hid)
         _ (<!! ic)
-        _ (set-output-report-preset j :spi-flash-read-factory-config)
+        _ (set-output-report-preset! j :spi-flash-read-factory-config)
         factory-config (decode-factory-config (vec (:data (<!! ic))))
-        _ (set-output-report-preset j :spi-flash-read-user-config)
+        _ (set-output-report-preset! j :spi-flash-read-user-config)
         user-config (decode-user-config (vec (:data (<!! ic))))
         ]
     {
@@ -286,3 +323,4 @@
           :left-stick  (decode-3x3 :left (:left-stick user-config))
           :right-stick (decode-3x3 :right (:right-stick user-config))
         }}))
+

@@ -1,4 +1,4 @@
-(ns joycon.stants)
+(ns joycon.constants)
 
 (def constants-map
   {:y               "Y"
