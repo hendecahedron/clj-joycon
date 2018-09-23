@@ -5,7 +5,6 @@
                 org.clojure/clojure                   {:mvn/version "1.9.0"}
                 org.clojure/core.async                {:mvn/version "0.4.474"}
                 net.java.dev.jna/jna                  {:mvn/version "4.5.2"}
-               ;purejavahidapi/purejavahidapi         {:mvn/version "0.0.2"}
-                purejavahidapi/purejavahidapi         {:local/root "/Users/onto/projects/libs/joyconLib/lib/purejavahidapi.jar"}
+                purejavahidapi/purejavahidapi         {:git/url "https://github.com/Hendekagon/purejavahidapi" :sha "bd7cc8d69e832667de755a069ddaf0ec22b587ac"}
                }
  }

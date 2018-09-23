@@ -5,6 +5,9 @@ WIP Clojure API for Joycons
 
 ```
 
+(use 'joycon.core)
+(use 'joycon.vibration)
+
 ; get a joycon (vibration &amp; IMU enabled by default)
 (def jl (joycon! :left)
 
