@@ -1,10 +1,13 @@
 {
- :paths       ["src/clj" "src/cljc"]
+ :paths ["src/clj" "src/cljc"]
  :deps
-              {
-                org.clojure/clojure                   {:mvn/version "1.9.0"}
-                org.clojure/core.async                {:mvn/version "0.4.474"}
-                net.java.dev.jna/jna                  {:mvn/version "4.5.2"}
-                purejavahidapi/purejavahidapi         {:git/url "https://github.com/Hendekagon/purejavahidapi" :sha "bd7cc8d69e832667de755a069ddaf0ec22b587ac"}
-               }
+ {
+    org.clojure/clojure {:mvn/version "1.10.1"}
+    org.clojure/core.async {:mvn/version "0.4.500"}
+    manifold {:mvn/version "0.1.8"}
+    net.java.dev.jna/jna {:mvn/version "5.5.0"}
+    gloss {:mvn/version "0.2.6"}
+    byte-streams {:mvn/version "0.2.4"}
+    purejavahidapi/purejavahidapi {:git/url "https://github.com/Hendekagon/purejavahidapi" :sha "bd7cc8d69e832667de755a069ddaf0ec22b587ac"}
+  }
  }

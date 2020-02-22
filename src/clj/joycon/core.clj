@@ -4,13 +4,13 @@
   Joycon functions
 
 
-  (def jl (joycon :left)
+  (def jl (joycon! :left)
 
   returns a joycon (vibration & IMU enabled by default)
 
-  (send-vibrations jl [[150 160 0.79] [200 80 0.0]]
+  (send-vibrations! jl [[150 160 0.79] [200 80 0.0]])
 
-  (close-device jl)
+  (close-joycon! jl)
 
   to close it - if you try to open it again the JVM will probably crash
 
@@ -67,11 +67,13 @@
 (defn bytes-pad-right [b n]
   (into b (repeat (- n (count b)) 0)))
 
-; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/bluetooth_hid_subcommands_notes.md#subcommands(def subcommands
+; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/bluetooth_hid_subcommands_notes.md#subcommands
 (def subcommand-presets
   {
-   :set-input-report-mode/simple-hid (bytez zero16 {0 0x01 10 0x03 11 0x3F})
-   :set-input-report-mode/standard   (bytez zero16 {0 0x01 10 0x03 11 0x30})
+   :set-input-report-mode/simple     (bytez zero16 {0 0x01 10 0x03 11 0x3F})
+   :set-input-report-mode/full       (bytez zero16 {0 0x01 10 0x03 11 0x30})
+   :set-input-report-mode/nfc-ir     (bytez zero16 {0 0x01 10 0x03 11 0x31})
+   :set-input-report-mode/mcu-state  (bytez zero16 {0 0x01 10 0x03 11 0x23})
    :set-player-lights/flash          (bytez zero16 {0 0x01 10 0x30 11 -16})
    :set-player-lights/on             (bytez zero16 {0 0x01 10 0x30 11 2r00001111})
    :set-player-lights/off            (bytez zero16 {0 0x01 10 0x30 11 2r00000000})
@@ -168,14 +170,14 @@
                             :product-id ({:left joy/joycon-left :right joy/joycon-right} side)})]
     (->
       {
-        :device (open-device di)
-        :device-info di
-        :side side
-        :stop-button (if (= :left side) joy/minus-on joy/plus-on)
-        :stop-button-index (if (= :left side) 4 2)
-        :data-channel (chan)
-        :stick-offsets (vec (take 3 (iterate inc (if (= :left side) 6 9))))
-      }
+       :device (open-device di)
+       :device-info di
+       :side side
+       :stop-button (if (= :left side) joy/minus-on joy/plus-on)
+       :stop-button-index (if (= :left side) 4 2)
+       :data-channel (chan)
+       :stick-offsets (if (= :left side) [6 7 8] [9 10 11])
+       }
       (add-input-channel)
       ;(add-velocity-channel)
       setup-joycon!)
@@ -183,9 +185,11 @@
 
 (defn decode-stick-data
   ([[i j k] ^bytes data]
-    (let [b0 (aget data i) b1 (aget data j) b2 (aget data k)]
-      [(bit-or b0 (bit-shift-left (bit-and b1 0xf) 0x08))
-       (bit-or (bit-shift-right b1 4) (bit-shift-left b2 4))])))
+    (let [b0 (aget data i)
+          b1 (aget data j)
+          b2 (aget data k)]
+      [(b| b0 (b< (b& b1 0xf) 0x08))
+       (b| (b> b1 4) (b< b2 4))])))
 
 ; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/spi_flash_notes.md#analog-stick-factory-and-user-calibration
 (defn decode-3x3 [side [d0 d1 d2 d3 d4 d5 d6 d7 d8]]
@@ -213,16 +217,32 @@
     :range-ratio (params 3)
   })
 
+(defn int16le [^bytes data f t]
+  (b| (b< (aget data t) 8) (aget data f)))
+
+(defmacro make-dimu-fn []
+  `(defn ~'decode-imu-data [~(with-meta 'data {:tag 'bytes})]
+    ~(mapv
+       (fn [s]
+         (into {}
+           (map vector (cycle [:ax :ay :az :rx :gy :gz])
+           (map
+             (fn [i] `(int16le ~'data ~i ~(+ 1 i)))
+             (range s (+ s 12) 2)))))
+        (range 12 (* 12 4) 12))))
+
+(make-dimu-fn)
+
 ; get SPI dump
 ;(with-set-output-report jl (bytez zero16 {0 0x01 10 0x10 11 0x0 12 0x60 13 0x0 14 0x0 15 0x1d}))
 
 ; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/spi_flash_notes.md#x6000-factory-configuration-and-calibration
 (defn decode-factory-config [reply-data]
-  (let [data (subvec reply-data 20) echo (subvec reply-data 13 19)]
+  (let [data (subvec reply-data 20)]
     {
      :pre-data      (subvec reply-data 0 32)
      :report-id     [(first reply-data)]
-     :echo          echo
+     :echo          (subvec reply-data 13 19)
      :data          data
      :mcu           (subvec data 0x20 0x38)
      :left-stick    (subvec data 0x3d 0x46)
@@ -233,11 +253,11 @@
      }))
 
 (defn decode-user-config [reply-data]
-  (let [data (subvec reply-data 20) echo (subvec reply-data 13 19)]
+  (let [data (subvec reply-data 20)]
     {
      :pre-data      (subvec reply-data 0 32)
      :report-id     [(first reply-data)]
-     :echo          echo
+     :echo          (subvec reply-data 13 19)
      :data          data
      :left-stick    (subvec data 0x12 0x1b)
      :right-stick   (subvec data 0x1d 0x26)
@@ -258,7 +278,7 @@
   (.setInputReportListener joycon
     (reify InputReportListener
      (onInputReport [this source reportID data reportLength]
-       (println ">" (decode-stick-data stick-offsets data))
+       (println ">" (count data) (decode-stick-data stick-offsets data))
        (when (== stop-button (aget data stop-button-index))
          (.setInputReportListener joycon nil))))))
 
@@ -292,6 +312,15 @@
       (when (== sb (aget data si))
         (.setInputReportListener joycon nil))))))
 
+(defn debug-imu! [{^HidDevice joycon :device si :stop-button-index sb :stop-button :as j}]
+  (.setInputReportListener joycon
+    (reify InputReportListener
+     (onInputReport [this source reportID data reportLength]
+       (doseq [d (decode-imu-data data)]
+         (println ">" d))
+      (when (== sb (aget data si))
+        (.setInputReportListener joycon nil))))))
+
 (defn report-once [{^HidDevice joycon :device :as j} f]
   (.setInputReportListener joycon
     (reify InputReportListener
@@ -313,14 +342,14 @@
       :raw-user    user-config
       :factory
         {
-          :left-stick  (decode-3x3 :left (:left-stick factory-config))
+          :left-stick  (decode-3x3 :left  (:left-stick factory-config))
           :right-stick (decode-3x3 :right (:right-stick factory-config))
-          :left-stick-params (decode-stick-params (:stick-params1 factory-config))
+          :left-stick-params  (decode-stick-params (:stick-params1 factory-config))
           :right-stick-params (decode-stick-params (:stick-params2 factory-config))
         }
       :user
         {
-          :left-stick  (decode-3x3 :left (:left-stick user-config))
+          :left-stick  (decode-3x3 :left  (:left-stick user-config))
           :right-stick (decode-3x3 :right (:right-stick user-config))
         }}))
 

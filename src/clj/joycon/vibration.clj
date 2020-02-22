@@ -6,7 +6,7 @@
 
 
   "
-  (:require [joycon.core :as jc]))
+  (:require [joycon.core :as jc :refer [b< b> b& b|]]))
 
 (def l2 (Math/log 2))
 
@@ -300,7 +300,7 @@
   (let [ef (Math/round (* 32 (Math/log (* (clamp f 41 1253) 0.1)) l2))
         hf (* (- ef 0x60) 4)
         lf (- ef 0x40)]
-   [(bit-and hf 2r1111111100000000) (bit-and hf 2r0000000011111111) lf]))
+   [(b& hf 2r1111111100000000) (b& hf 2r0000000011111111) lf]))
 
 
 (defn encode-amplitude [a]
@@ -313,10 +313,10 @@
          la (* 0.5 (Math/round ha))
          p  (> (mod la 2) 0)
          la (int (if p (- la 1) p))
-         la (int (+ 0x40 (bit-shift-right la 1)))
-         la (int (if p (bit-or la 0x8000) la))
+         la (int (+ 0x40 (b> la 1)))
+         la (int (if p (b| la 0x8000) la))
        ]
-     [(int ha) (bit-and (bit-shift-right la 8) 0xff) (bit-and la 0xff)]))
+     [(int ha) (b& (b> la 8) 0xff) (b& la 0xff)]))
 
 
 ; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/bluetooth_hid_notes.md#rumble-data
@@ -350,12 +350,12 @@
 
     e.g. [[100 80 0.23] [100 80 0.0]] sends a 100ms 80Hz pulse
   "
-  [j tfa]
-  (let [q (vibration-data [41 0.0])]
-    (doseq [[t vd] (map (fn [[t f a]] [t (vibration-data [f a])]) tfa)]
+  ([j tfa]
+   (doseq [[t vd] (map (fn [[t f a]] [t (vibration-data [f a])]) tfa)]
      (do
        (Thread/sleep t)
-       (jc/set-output-report! j vd)
-       ;(Thread/sleep t)
-       ;(jc/with-set-output-report j q)
-       ))))
+       (jc/set-output-report! j vd)))))
+
+(defn test-vibration!
+  ([j]
+   (send-vibrations! j [[41 0.0]])))
