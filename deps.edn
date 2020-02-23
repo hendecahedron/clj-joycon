@@ -2,12 +2,15 @@
  :paths ["src/clj" "src/cljc"]
  :deps
  {
-    org.clojure/clojure {:mvn/version "1.10.1"}
-    org.clojure/core.async {:mvn/version "0.4.500"}
-    manifold {:mvn/version "0.1.8"}
-    net.java.dev.jna/jna {:mvn/version "5.5.0"}
-    gloss {:mvn/version "0.2.6"}
-    byte-streams {:mvn/version "0.2.4"}
-    purejavahidapi/purejavahidapi {:git/url "https://github.com/Hendekagon/purejavahidapi" :sha "bd7cc8d69e832667de755a069ddaf0ec22b587ac"}
+  org.clojure/clojure {:mvn/version "1.10.1"}
+  org.clojure/core.async {:mvn/version "1.0.567"}
+  net.java.dev.jna/jna {:mvn/version "5.5.0"}
+  cljfx {:mvn/version "1.6.3"}
+  manifold {:mvn/version "0.1.8"}
+  gloss {:mvn/version "0.2.6"}
+  byte-streams {:mvn/version "0.2.4"}
+  uncomplicate/neanderthal {:mvn/version "0.27.0"}
+  kixi/stats {:mvn/version "0.5.2"}
+  purejavahidapi/purejavahidapi {:git/url "https://github.com/Hendekagon/purejavahidapi" :sha "bd7cc8d69e832667de755a069ddaf0ec22b587ac"}
   }
  }

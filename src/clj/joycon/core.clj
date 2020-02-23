@@ -19,6 +19,8 @@
   (:require
     [clojure.core.async :as async :refer [chan <!! >!! <! >! put! close! pipe go go-loop dropping-buffer]]
     [joycon.constants :as joy]
+    [uncomplicate.neanderthal.core :as nc]
+    [uncomplicate.neanderthal.native :as nn]
     [clojure.string :as string])
   (:import
     [purejavahidapi PureJavaHidApi]
@@ -137,18 +139,22 @@
   (.setOutputReport joycon (byte 0x01) (with-packet-number (subcommand-presets subcommand-key)) 16)
   j)
 
+(defrecord Report [report-id data length])
+
 (defn add-input-channel [{^HidDevice joycon :device :as j}]
   (let [c (chan (dropping-buffer 512))]
     (.setInputReportListener joycon
      (reify InputReportListener
        (onInputReport [this source reportID data reportLength]
-         (put! c {:report-id reportID :data data :length reportLength}))))
-     (.setDeviceRemovalListener joycon
-        (reify DeviceRemovalListener
-         (onDeviceRemoval [this source]
-           (close! c))))
+         (put! c (->Report reportID data reportLength)))))
+    (.setDeviceRemovalListener joycon
+      (reify DeviceRemovalListener
+        (onDeviceRemoval [this source]
+          (close! c))))
      (assoc j :input-report-channel c)))
 
+
+; !! ch must close
 (defn add-velocity-channel [{:keys [data-channel] :as j}]
   (assoc j :data-channel'
     (async/transduce
@@ -157,7 +163,7 @@
       {} data-channel)))
 
 (defn setup-joycon! [{ic :input-report-channel :as j}]
-  (set-output-report-preset! j :set-input-report-mode/simple-hid)
+  (set-output-report-preset! j :set-input-report-mode/simple)
   (<!! ic)
   (set-output-report-preset! j :enable-imu)
   (<!! ic)
@@ -220,15 +226,95 @@
 (defn int16le [^bytes data f t]
   (b| (b< (aget data t) 8) (aget data f)))
 
+(defrecord imu-data [a r])
+
+(defn decode-imu-data-2 [^bytes data]
+  (mapv
+     (fn [s]
+       (let [[a g] (map (fn [p] (apply nn/iv p))
+                     (partition 3
+                       (map
+                         (fn [i]
+                         (b| (b< (aget data (+ 1 i)) 8) (aget data i)))
+                         (range s (+ s 12) 2))))]
+         (->imu-data a g)))
+     (range 12 (* 12 4) 12)))
+
+(defn decode-imu-data-1 [^bytes data]
+  (mapv
+     (fn [s]
+       (let [[a g] (map (fn [p] (apply nn/iv p))
+                     (partition 3
+                       (map
+                         (fn [i] (int16le data i (+ 1 i)))
+                         (range s (+ s 12) 2))))]
+         (->imu-data a g)))
+     (range 12 (* 12 4) 12)))
+
+; map cat mapcat filter remove take take-while take-nth drop drop-while replace
+; partition-by partition-all keep keep-indexed map-indexed distinct interpose dedupe random-sample
+;  𝌂   ⬇ ︎ ↓ 𝑓 𝒇  ▥ ⿲  ↓ ⏙ 𐄉 ∃ ⧢
+; ⊂⊌⊍🄕⒡𝄑
+
+(def E partition-all)
+(def ⏙ partition-all)
+(def 𝌂 partition-all)
+(def ⬇ map)
+
+
+(defn bytes-xf->imu-data [^bytes data]
+  (comp
+    (⬇ (fn [i] (int16le data i (+ 1 i))))
+    (E 3)
+    (⬇ (fn [p] (apply nn/iv p)))
+    (E 2)
+    (⬇ (fn [p] (apply ->imu-data p)))))
+
+(def report-xf->imu-data
+  (mapcat
+    (fn [{data :data}]
+      (sequence
+        (bytes-xf->imu-data data)
+        (range 12 (+ 12 (* 12 3)) 2)))))
+
+; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/imu_sensor_notes.md#packet-data-information
+; Using all 3 samples let you have a 5ms precision
+; Execution time mean : 5.355734 µs
+(defn decode-imu-data [^bytes data]
+  (sequence (bytes-xf->imu-data data)
+    (range 12 (+ 12 (* 12 3)) 2)))
+
+(defn add-imu-data-channel [{ic :input-report-channel :as j}]
+  (let [dc (chan (dropping-buffer 512) report-xf->imu-data)]
+    (pipe ic dc)
+    (assoc j :data-channel dc :message-channel (chan))))
+
+; unrolled
+; Execution time mean : 8.817436 µs
+(defmacro make-df3a []
+  `(defn ~'decode-imu-data-3a [~'data]
+    ~(vec
+      (sequence
+        (comp
+          (map (fn [i] `(int16le ~'data ~i ~(+ 1 i))))
+          (partition-all 3)
+          (map (fn [p] `(nn/iv ~@p)))
+          (partition-all 2)
+          (map (fn [[a g]] `(->imu-data ~a ~g))))
+        (range 12 (+ 12 (* 12 3)) 2)))))
+
+(make-df3a)
+
 (defmacro make-dimu-fn []
-  `(defn ~'decode-imu-data [~(with-meta 'data {:tag 'bytes})]
+  `(defn ~'decode-imu-data-7 [~(with-meta 'data {:tag 'bytes})]
     ~(mapv
        (fn [s]
-         (into {}
-           (map vector (cycle [:ax :ay :az :rx :gy :gz])
-           (map
-             (fn [i] `(int16le ~'data ~i ~(+ 1 i)))
-             (range s (+ s 12) 2)))))
+         (let [[a g] (map (fn [p] `(nn/iv ~@p))
+                       (partition 3
+                        (map
+                          (fn [i] `(int16le ~'data ~i ~(+ 1 i)))
+                          (range s (+ s 12) 2))))]
+           `(->imu-data ~a ~g)))
         (range 12 (* 12 4) 12))))
 
 (make-dimu-fn)
