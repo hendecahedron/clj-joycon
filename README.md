@@ -46,7 +46,7 @@ WIP Clojure API for Joycons
 * Callibration of sensor data
 
 
-Progress on this will be slow as it's a 1-hour per weekend project 
+Progress on this will be slow 
 
 
 ### References:
