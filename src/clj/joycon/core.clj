@@ -228,29 +228,6 @@
 
 (defrecord imu-data [a r])
 
-(defn decode-imu-data-2 [^bytes data]
-  (mapv
-     (fn [s]
-       (let [[a g] (map (fn [p] (apply nn/iv p))
-                     (partition 3
-                       (map
-                         (fn [i]
-                         (b| (b< (aget data (+ 1 i)) 8) (aget data i)))
-                         (range s (+ s 12) 2))))]
-         (->imu-data a g)))
-     (range 12 (* 12 4) 12)))
-
-(defn decode-imu-data-1 [^bytes data]
-  (mapv
-     (fn [s]
-       (let [[a g] (map (fn [p] (apply nn/iv p))
-                     (partition 3
-                       (map
-                         (fn [i] (int16le data i (+ 1 i)))
-                         (range s (+ s 12) 2))))]
-         (->imu-data a g)))
-     (range 12 (* 12 4) 12)))
-
 ; map cat mapcat filter remove take take-while take-nth drop drop-while replace
 ; partition-by partition-all keep keep-indexed map-indexed distinct interpose dedupe random-sample
 ;  𝌂   ⬇ ︎ ↓ 𝑓 𝒇  ▥ ⿲  ↓ ⏙ 𐄉 ∃ ⧢
@@ -288,36 +265,6 @@
   (let [dc (chan (dropping-buffer 512) report-xf->imu-data)]
     (pipe ic dc)
     (assoc j :data-channel dc :message-channel (chan))))
-
-; unrolled
-; Execution time mean : 8.817436 µs
-(defmacro make-df3a []
-  `(defn ~'decode-imu-data-3a [~'data]
-    ~(vec
-      (sequence
-        (comp
-          (map (fn [i] `(int16le ~'data ~i ~(+ 1 i))))
-          (partition-all 3)
-          (map (fn [p] `(nn/iv ~@p)))
-          (partition-all 2)
-          (map (fn [[a g]] `(->imu-data ~a ~g))))
-        (range 12 (+ 12 (* 12 3)) 2)))))
-
-(make-df3a)
-
-(defmacro make-dimu-fn []
-  `(defn ~'decode-imu-data-7 [~(with-meta 'data {:tag 'bytes})]
-    ~(mapv
-       (fn [s]
-         (let [[a g] (map (fn [p] `(nn/iv ~@p))
-                       (partition 3
-                        (map
-                          (fn [i] `(int16le ~'data ~i ~(+ 1 i)))
-                          (range s (+ s 12) 2))))]
-           `(->imu-data ~a ~g)))
-        (range 12 (* 12 4) 12))))
-
-(make-dimu-fn)
 
 ; get SPI dump
 ;(with-set-output-report jl (bytez zero16 {0 0x01 10 0x10 11 0x0 12 0x60 13 0x0 14 0x0 15 0x1d}))
