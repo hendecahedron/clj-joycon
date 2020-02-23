@@ -1,4 +1,4 @@
-###Clojure joycon library
+### Clojure joycon library
 
 
 WIP Clojure API for Joycons
@@ -8,7 +8,7 @@ WIP Clojure API for Joycons
 (use 'joycon.core)
 (use 'joycon.vibration)
 
-; get a joycon (vibration &amp; IMU enabled by default)
+; get a joycon (vibration & IMU enabled by default)
 (def jl (joycon! :left)
 
 ; make it vibrate
@@ -49,7 +49,7 @@ WIP Clojure API for Joycons
 Progress on this will be slow as it's a 1-hour per weekend project 
 
 
-###References:
+### References:
 
 
 https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering
