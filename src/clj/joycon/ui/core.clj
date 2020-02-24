@@ -2,12 +2,11 @@
   (:require
     [clojure.core.async :as async :refer [chan <!! >!! <! >! put! close! pipe go go-loop dropping-buffer]]))
 
-(def state (atom {:imu {}}))
-
 (defmulti handle (fn [state event] (:event/type event)))
 
-(defn handle-event [event]
-  (swap! state (fn [s] (handle s event))))
+(defn handle-event [state]
+  (fn [event]
+    (swap! state (fn [s] (handle s event)))))
 
 (defmethod handle :change-text [state {path :path value :fx/event}]
   (assoc-in state path (str value)))

@@ -21,6 +21,7 @@
     [joycon.constants :as joy]
     [uncomplicate.neanderthal.core :as nc]
     [uncomplicate.neanderthal.native :as nn]
+    [uncomplicate.neanderthal.vect-math :as nvm]
     [clojure.string :as string])
   (:import
     [purejavahidapi PureJavaHidApi]
@@ -142,7 +143,7 @@
 (defrecord Report [report-id data length])
 
 (defn add-input-channel [{^HidDevice joycon :device :as j}]
-  (let [c (chan (dropping-buffer 512))]
+  (let [c (chan (dropping-buffer 16))]
     (.setInputReportListener joycon
      (reify InputReportListener
        (onInputReport [this source reportID data reportLength]
@@ -224,9 +225,23 @@
   })
 
 (defn int16le [^bytes data f t]
-  (b| (b< (aget data t) 8) (aget data f)))
+  (b| (aget data f) (b& (b< (aget data t) 8) 0xff)))
 
 (defrecord imu-data [a r])
+
+; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/imu_sensor_notes.md#convert-to-basic-useful-data-using-raw-values
+
+(def imu-int16-acc-comp
+  (double (/ 16000 65535 1000)))
+
+(def imu-int16-gyr-comp
+  (double (/ 4588 65535)))
+
+(def imu-acc-scale
+  (nn/dv imu-int16-acc-comp imu-int16-acc-comp imu-int16-acc-comp))
+
+(def imu-gyr-scale
+  (nn/dv imu-int16-gyr-comp imu-int16-gyr-comp imu-int16-gyr-comp))
 
 ; map cat mapcat filter remove take take-while take-nth drop drop-while replace
 ; partition-by partition-all keep keep-indexed map-indexed distinct interpose dedupe random-sample
@@ -238,31 +253,35 @@
 (def 𝌂 partition-all)
 (def ⬇ map)
 
+(defn scale-imu-data [imu-data]
+  (-> imu-data
+    (update :a (partial nvm/mul imu-acc-scale))
+    (update :r (partial nvm/mul imu-gyr-scale))))
 
 (defn bytes-xf->imu-data [^bytes data]
   (comp
     (⬇ (fn [i] (int16le data i (+ 1 i))))
-    (E 3)
-    (⬇ (fn [p] (apply nn/iv p)))
-    (E 2)
-    (⬇ (fn [p] (apply ->imu-data p)))))
+    (⏙ 3)
+    (⬇ (fn [p] (apply nn/dv p)))
+    (⏙ 2)
+    (⬇ (fn [p] (apply (comp scale-imu-data ->imu-data) p)))))
 
 (def report-xf->imu-data
   (mapcat
     (fn [{data :data}]
       (sequence
         (bytes-xf->imu-data data)
-        (range 12 (+ 12 (* 12 3)) 2)))))
+        (range 13 (+ 13 (* 12 3)) 2)))))
 
 ; https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering/blob/master/imu_sensor_notes.md#packet-data-information
 ; Using all 3 samples let you have a 5ms precision
 ; Execution time mean : 5.355734 µs
 (defn decode-imu-data [^bytes data]
   (sequence (bytes-xf->imu-data data)
-    (range 12 (+ 12 (* 12 3)) 2)))
+    (range 13 (+ 13 (* 12 3)) 2)))
 
 (defn add-imu-data-channel [{ic :input-report-channel :as j}]
-  (let [dc (chan (dropping-buffer 512) report-xf->imu-data)]
+  (let [dc (chan (dropping-buffer 16) report-xf->imu-data)]
     (pipe ic dc)
     (assoc j :data-channel dc :message-channel (chan))))
 
