@@ -12,7 +12,7 @@
 
   (close-joycon! jl)
 
-  to close it - if you try to open it again the JVM will probably crash
+  to close it
 
 
   "
@@ -22,8 +22,6 @@
     [uncomplicate.neanderthal.core :as nc]
     [uncomplicate.neanderthal.native :as nn]
     [uncomplicate.neanderthal.vect-math :as nvm]
-    [robert.hooke :as hooke]
-    [taoensso.tufte :as tufte :refer [p]]
     [clojure.string :as string])
   (:import
     [purejavahidapi PureJavaHidApi]
