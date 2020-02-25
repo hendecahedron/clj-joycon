@@ -239,6 +239,7 @@
 (def imu-int16-gyr-comp
   (double (/ 4588 65535)))
 
+; TODO find out what this is supposed to be
 (def g 3.90631e-3)
 
 (def imu-acc-scale
@@ -249,15 +250,6 @@
 
 (def g-mat
   (nn/dge 4 4 [1 0 0 0 0 1 0 0 0 0 1 0 0 0 g 1]))
-
-"
-
-[sx 0 0  tx]
-[0 sy 0  ty]
-[0  0 sz tz]
-[0 0 0    1]
-
-"
 
 ; map cat mapcat filter remove take take-while take-nth drop drop-while replace
 ; partition-by partition-all keep keep-indexed map-indexed distinct interpose dedupe random-sample

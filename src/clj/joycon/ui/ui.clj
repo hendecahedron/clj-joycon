@@ -157,9 +157,17 @@
         :on-action {:event/type :click/stop}}
        (component {:value (:a (last v))})
        (component {:value (:r (last v))})
+       {:fx/type :group
+        :children
+         [
+         {
+          :fx/type :sphere
+          :radius 10
+          }
+          {:fx/type :camera}]}
        {:fx/type :h-box
         :children
-         [{
+        [{
           :fx/type :v-box
           :children
           [(component {:kind :line-chart :n n :title "ax" :value (map (fn [x] (nc/entry (:a x) 0)) v)})
