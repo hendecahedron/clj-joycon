@@ -7,6 +7,7 @@ WIP Clojure API for Joycons
 
 (use 'joycon.core)
 (use 'joycon.vibration)
+(use :reload 'joycon.ui.ui)
 
 ; get a joycon (vibration & IMU enabled by default)
 (def jl (joycon! :left)
@@ -26,6 +27,14 @@ WIP Clojure API for Joycons
 (set-output-report-preset! jl :set-player-lights/flash)
 
 (set-output-report-preset! jl :set-player-lights/off)
+
+; see a rough UI with some charts
+
+(def j1 (debug-joycon! jr))
+
+; stop UI
+
+(undebug-joycon! j1)
 
 ; close it
 (close-joycon! jl)
