@@ -6,6 +6,7 @@
   org.clojure/core.async {:mvn/version "1.0.567"}
   net.java.dev.jna/jna {:mvn/version "5.5.0"}
   cljfx {:mvn/version "1.6.3"}
+  cljfx/css {:mvn/version "1.1.0"}
   manifold {:mvn/version "0.1.8"}
   gloss {:mvn/version "0.2.6"}
   byte-streams {:mvn/version "0.2.4"}

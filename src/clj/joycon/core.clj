@@ -22,6 +22,8 @@
     [uncomplicate.neanderthal.core :as nc]
     [uncomplicate.neanderthal.native :as nn]
     [uncomplicate.neanderthal.vect-math :as nvm]
+    [robert.hooke :as hooke]
+    [taoensso.tufte :as tufte :refer [p]]
     [clojure.string :as string])
   (:import
     [purejavahidapi PureJavaHidApi]
@@ -225,7 +227,7 @@
   })
 
 (defn int16le [^bytes data f t]
-  (b| (aget data f) (b& (b< (aget data t) 8) 0xff)))
+  (b| (aget data t) (b& (b< (aget data f) 8) 0xff)))
 
 (defrecord imu-data [a r])
 
@@ -237,11 +239,25 @@
 (def imu-int16-gyr-comp
   (double (/ 4588 65535)))
 
+(def g 3.90631e-3)
+
 (def imu-acc-scale
-  (nn/dv imu-int16-acc-comp imu-int16-acc-comp imu-int16-acc-comp))
+  (nn/dv imu-int16-acc-comp imu-int16-acc-comp imu-int16-acc-comp 1))
 
 (def imu-gyr-scale
-  (nn/dv imu-int16-gyr-comp imu-int16-gyr-comp imu-int16-gyr-comp))
+  (nn/dv imu-int16-gyr-comp imu-int16-gyr-comp imu-int16-gyr-comp 1))
+
+(def g-mat
+  (nn/dge 4 4 [1 0 0 0 0 1 0 0 0 0 1 0 0 0 g 1]))
+
+"
+
+[sx 0 0  tx]
+[0 sy 0  ty]
+[0  0 sz tz]
+[0 0 0    1]
+
+"
 
 ; map cat mapcat filter remove take take-while take-nth drop drop-while replace
 ; partition-by partition-all keep keep-indexed map-indexed distinct interpose dedupe random-sample
@@ -255,14 +271,14 @@
 
 (defn scale-imu-data [imu-data]
   (-> imu-data
-    (update :a (partial nvm/mul imu-acc-scale))
-    (update :r (partial nvm/mul imu-gyr-scale))))
+    (update :a (fn [v] (nc/mv g-mat (nvm/mul imu-acc-scale v))))
+    (update :r (fn [v] (nvm/mul imu-gyr-scale v)))))
 
 (defn bytes-xf->imu-data [^bytes data]
   (comp
     (⬇ (fn [i] (int16le data i (+ 1 i))))
     (⏙ 3)
-    (⬇ (fn [p] (apply nn/dv p)))
+    (⬇ (fn [p] (apply nn/dv (concat p [1]))))
     (⏙ 2)
     (⬇ (fn [p] (apply (comp scale-imu-data ->imu-data) p)))))
 
